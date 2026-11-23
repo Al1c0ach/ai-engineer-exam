@@ -63,6 +63,51 @@
   var KEY = "aiexam.v1";
   var SKEY = "aiexam.session";
 
+  /* 级别：初 / 中 / 高 */
+  var LEVELS = META.levels || [];
+  var QBYLEVEL = {};
+  QS.forEach(function (q) { (QBYLEVEL[q.level] = QBYLEVEL[q.level] || []).push(q); });
+  function curLevelId() {
+    var id = state.settings.level;
+    for (var i = 0; i < LEVELS.length; i++) if (LEVELS[i].id === id) return id;
+    return LEVELS.length ? LEVELS[0].id : "junior";
+  }
+  function curLevel() {
+    var id = curLevelId();
+    for (var i = 0; i < LEVELS.length; i++) if (LEVELS[i].id === id) return LEVELS[i];
+    return { id: id, name: "" };
+  }
+  function levelName(id) {
+    for (var i = 0; i < LEVELS.length; i++) if (LEVELS[i].id === id) return LEVELS[i].name;
+    return "";
+  }
+  function levelQs() { return QBYLEVEL[curLevelId()] || []; }
+  function levelChapters() {
+    var id = curLevelId();
+    return (META.chapters || []).filter(function (c) { return c.level === id; });
+  }
+  function levelProgress() {
+    var list = levelQs(), done = 0, ok = 0;
+    list.forEach(function (q) {
+      var a = state.answers[q.id];
+      if (a) { done++; if (a.ok) ok++; }
+    });
+    return { total: list.length, done: done, ok: ok, acc: done ? Math.round((ok / done) * 100) : 0 };
+  }
+  function setLevel(id) {
+    if (curLevelId() === id) return;
+    state.settings.level = id;
+    save(true);
+    route();
+    toast("已切换到" + levelName(id));
+  }
+  function levelChips() {
+    return '<div class="chiprow levelrow">' + LEVELS.map(function (l) {
+      return '<button class="chip' + (l.id === curLevelId() ? " chip--on" : "") + '" data-act="set-level" data-v="' + l.id + '">' +
+        l.name + '<span class="chip__n">' + (l.count || (QBYLEVEL[l.id] || []).length) + "</span></button>";
+    }).join("") + "</div>";
+  }
+
   /* ========================= 工具 ========================= */
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -108,7 +153,7 @@
   /* ========================= 本地存储 ========================= */
   var DEFAULT_STATE = {
     answers: {}, wrong: {}, fav: [], daily: {}, history: [],
-    settings: { theme: "light", font: "m", shuffleOpts: false, autoNext: true }
+    settings: { theme: "light", font: "m", shuffleOpts: false, autoNext: true, level: "junior" }
   };
   var state = load();
   function load() {
@@ -164,7 +209,7 @@
     return { total: list.length, done: done, ok: ok, acc: done ? Math.round((ok / done) * 100) : null };
   }
   function subjectStats(subId) {
-    var chs = (META.chapters || []).filter(function (c) { return c.subject === subId; });
+    var chs = levelChapters().filter(function (c) { return c.subject === subId; });
     var total = 0, done = 0, ok = 0;
     chs.forEach(function (c) {
       var s = chapterStats(c.id);
@@ -228,7 +273,7 @@
   }
 
   var TITLES = {
-    home: ["首页", "人工智能工程技术人员 · 初级"],
+    home: ["首页", "两科十章 · 按级别记录进度"],
     bank: ["分类题库", "两科十章 · 按考点拆开练"],
     test: ["模拟测验", "随机抽题 · 交卷统一判分"],
     wrong: ["错题本", "错一次记一次，答对自动移除"],
@@ -268,29 +313,39 @@
   }
   function setHead(key, title, sub) {
     var t = TITLES[key] || ["AI工题库", ""];
+    var lv = curLevel();
     vTitle.textContent = title || t[0];
-    vSub.textContent = sub || t[1];
+    var s = sub || t[1];
+    if (lv.name && ["home", "bank", "test", "stats"].indexOf(key) > -1) s = lv.name + " · " + s;
+    vSub.textContent = s;
   }
   function updateSide() {
     var totalEl = document.getElementById("navTotal");
-    if (totalEl) totalEl.textContent = QS.length;
+    if (totalEl) totalEl.textContent = levelQs().length;
     var w = document.getElementById("navWrong");
     if (w) w.textContent = Object.keys(state.wrong).length;
     var f = document.getElementById("navFav");
     if (f) f.textContent = state.fav.length;
     var s = document.getElementById("sideStreak");
     if (s) s.textContent = streak();
+    var v = document.getElementById("sideVer");
+    if (v) v.textContent = "v" + (META.version || "1.0") + " · 原创模拟题 · " + LEVELS.length + " 级 " + QS.length + " 题";
+    var b = document.getElementById("brandSub");
+    if (b) b.textContent = "AI ENGINEER · " + (curLevel().name || "");
   }
 
   /* ========================= 首页 ========================= */
   function renderHome() {
     var goal = 20;
     var td = dailyToday();
-    var ans = answeredIds().length, cor = correctIds().length;
-    var acc = ans ? Math.round((cor / ans) * 100) : 0;
-    var prog = pct(ans, QS.length);
+    var lv = curLevel();
+    var lp = levelProgress();
+    var prog = pct(lp.done, lp.total);
     var ringP = Math.min(100, pct(td.n, goal));
-    var subs = (META.subjects || []).map(function (s) {
+    var kicker = { junior: "AI ENGINEER · JUNIOR", mid: "AI ENGINEER · MID", senior: "AI ENGINEER · SENIOR" }[lv.id] || "AI ENGINEER";
+    var subs = (META.subjects || []).filter(function (s) {
+      return levelChapters().some(function (c) { return c.subject === s.id; });
+    }).map(function (s) {
       var st = subjectStats(s.id);
       return '<a class="subj__card" href="#/bank?subject=' + s.id + '" data-subject="' + s.id + '">' +
         '<span class="subj__ico">' + icon(s.icon || "cpu") + "</span>" +
@@ -312,29 +367,37 @@
       }).join("") + "</div>" : "";
 
     var resume = getSessionSnapshot();
+    var resumeLabel = "";
+    if (resume) {
+      resumeLabel = (resume.level && resume.level !== curLevelId())
+        ? "继续上次（" + levelName(resume.level) + "）"
+        : "继续上次（" + (resume.i + 1) + "/" + resume.ids.length + "）";
+    }
     var heroCta = resume
-      ? '<a class="btn" href="#/practice?resume=1">' + icon("pen") + "继续上次（第 " + (resume.i + 1) + " 题）</a>"
+      ? '<a class="btn" href="#/practice?resume=1">' + icon("pen") + resumeLabel + "</a>"
       : '<a class="btn" href="#/practice?scope=random&count=20">' + icon("pen") + "开始刷题</a>";
 
     view.innerHTML =
+      '<div class="levelbar"><span class="levelbar__label">级别</span>' + levelChips() + "</div>" +
+
       '<section class="hero">' +
         '<div class="hero__top"><div>' +
-          '<p class="hero__kicker">AI ENGINEER · JUNIOR</p>' +
-          '<h2 class="hero__title">今天练几道？</h2>' +
-          '<p class="hero__desc">' + esc(META.notice || "原创模拟题，覆盖基础理论与工程实践两科") + "</p>" +
+          '<p class="hero__kicker">' + kicker + "</p>" +
+          '<h2 class="hero__title">' + esc(lv.name) + " · 今天练几道？</h2>" +
+          '<p class="hero__desc">' + esc(lv.desc || META.notice || "") + "</p>" +
         "</div>" +
         '<div class="hero__ring" style="--p:' + ringP + '"><div><b class="num">' + td.n + '</b><small>/ ' + goal + " 题</small></div></div>" +
         "</div>" +
         '<div class="hero__stats">' +
-          "<div><b class='num'>" + QS.length + "</b><span>题库总量</span></div>" +
-          "<div><b class='num'>" + ans + "</b><span>已练题数</span></div>" +
-          "<div><b class='num'>" + acc + "%</b><span>总正确率</span></div>" +
+          "<div><b class='num'>" + lp.total + "</b><span>" + esc(lv.name) + "题库</span></div>" +
+          "<div><b class='num'>" + lp.done + "</b><span>已练题数</span></div>" +
+          "<div><b class='num'>" + lp.acc + "%</b><span>总正确率</span></div>" +
           "<div><b class='num'>" + streak() + "</b><span>连续天数</span></div>" +
         "</div>" +
         '<div class="hero__cta">' + heroCta + '<a class="btn btn--line" href="#/test">模拟测验</a></div>' +
       "</section>" +
 
-      '<section class="sect"><div class="sect__head"><h2>每日计划</h2><span>' + prog + "% 题库已覆盖</span></div>" +
+      '<section class="sect"><div class="sect__head"><h2>每日计划</h2><span>' + prog + "% 本题库已覆盖</span></div>" +
         '<div class="daily"><div class="daily__ring" style="--p:' + ringP + '"><b class="num">' + td.n + "</b></div>" +
         '<div class="daily__body"><b>' + (td.n >= goal ? "今日目标已完成 ✓" : "还差 " + (goal - td.n) + " 题") + "</b>" +
         '<p>今天答对 ' + td.ok + " 题 · 练满 " + goal + " 题保状态</p></div>" +
@@ -354,12 +417,13 @@
       weakHtml +
 
       '<p class="small muted" style="margin:22px 4px 0;text-align:center">' +
-        esc(META.exam || "") + " · 题库 v" + esc(META.version || "1.0") + " · 内容为原创模拟题，仅供学习自测</p>";
+        esc(META.exam || "") + " · 初/中/高三级共 " + QS.length + " 题 · 题库 v" + esc(META.version || "1.0") +
+        " · 原创模拟题，仅供学习自测</p>";
   }
 
   function weakChapters(limit) {
     var out = [];
-    (META.chapters || []).forEach(function (ch) {
+    levelChapters().forEach(function (ch) {
       var st = chapterStats(ch.id);
       if (st.done >= 5 && st.acc != null && st.acc < 70) out.push({ ch: ch, st: st });
     });
@@ -370,9 +434,13 @@
   /* ========================= 分类题库 ========================= */
   function renderBank(query) {
     var filter = query && query.subject;
-    var subs = (META.subjects || []).filter(function (s) { return !filter || s.id === filter; });
-    var html = '<div class="chiprow">' +
-      '<a class="chip' + (!filter ? " chip--on" : "") + '" href="#/bank">全部 ' + QS.length + "</a>" +
+    var subs = (META.subjects || []).filter(function (s) {
+      return (!filter || s.id === filter) && levelChapters().some(function (c) { return c.subject === s.id; });
+    });
+    var lp = levelProgress();
+    var html = '<div class="levelbar"><span class="levelbar__label">级别</span>' + levelChips() + "</div>" +
+      '<div class="chiprow">' +
+      '<a class="chip' + (!filter ? " chip--on" : "") + '" href="#/bank">全部 ' + lp.total + "</a>" +
       (META.subjects || []).map(function (s) {
         return '<a class="chip' + (filter === s.id ? " chip--on" : "") + '" href="#/bank?subject=' + s.id + '">' + esc(s.short || s.name) + "</a>";
       }).join("") + "</div>";
@@ -380,7 +448,7 @@
     subs.forEach(function (s) {
       var st = subjectStats(s.id);
       html += '<div class="sect"><div class="sect__head"><h2>' + esc(s.name) + '</h2><span>' + st.done + "/" + st.total + " · 正确率 " + (st.acc == null ? "—" : st.acc + "%") + "</span></div>";
-      (META.chapters || []).filter(function (c) { return c.subject === s.id; }).forEach(function (ch) {
+      levelChapters().filter(function (c) { return c.subject === s.id; }).forEach(function (ch) {
         var cs = chapterStats(ch.id);
         html += '<a class="chapter" href="#/chapter/' + ch.id + '">' +
           '<span class="chapter__ico">' + icon(ch.icon || "book") + "</span>" +
@@ -399,7 +467,8 @@
   function renderChapter(id) {
     var ch = CHAP[id];
     if (!ch) { location.replace("#/bank"); return; }
-    setHead("bank", ch.name, (SUBJ[ch.subject] ? SUBJ[ch.subject].name : "") + " · 共 " + ch.count + " 题");
+    if (ch.level && ch.level !== curLevelId()) { state.settings.level = ch.level; save(true); }
+    setHead("bank", ch.name, levelName(ch.level) + " · " + (SUBJ[ch.subject] ? SUBJ[ch.subject].name : "") + " · 共 " + ch.count + " 题");
     var cs = chapterStats(id);
     var topics = (ch.topics || []).map(function (t) {
       var ts = topicStats(id, t);
@@ -431,7 +500,9 @@
   /* ========================= 练习会话 ========================= */
   function buildQueue(scope, opts) {
     if (opts.ids && opts.ids.length) return opts.ids.slice();
-    var pool = QS.slice();
+    /* 错题本与收藏跨级别取题，其余限定当前级别 */
+    var base = (scope === "wrong" || scope === "fav") ? QS.slice() : levelQs().slice();
+    var pool = base;
     if (opts.chapter) pool = pool.filter(function (q) { return q.chapter === opts.chapter; });
     if (scope === "wrong") pool = pool.filter(function (q) { return state.wrong[q.id]; });
     else if (scope === "fav") pool = pool.filter(function (q) { return isFav(q.id); });
@@ -454,10 +525,14 @@
       toast("这里还没有题，换个入口吧");
       return false;
     }
+    var lvSet = {};
+    ids.forEach(function (id) { if (BYID[id]) lvSet[BYID[id].level] = 1; });
+    var lvKeys = Object.keys(lvSet);
     session = {
       ids: ids, i: 0, picks: {}, revealed: {}, mode: scope,
       chapter: opts.chapter || "", title: opts.title || defaultTitle(scope, opts),
-      startedAt: Date.now(), revealedCount: 0, correct: 0, finished: false, optOrder: {}
+      startedAt: Date.now(), revealedCount: 0, correct: 0, finished: false, optOrder: {},
+      level: lvKeys.length === 1 ? lvKeys[0] : ""
     };
     if (opts.shuffle && state.settings.shuffleOpts) {
       ids.forEach(function (id) { session.optOrder[id] = shuffle([0, 1, 2, 3, 4].slice(0, BYID[id].options.length)); });
@@ -475,7 +550,8 @@
       sessionStorage.setItem(SKEY, JSON.stringify({
         ids: session.ids, i: session.i, picks: session.picks, revealed: session.revealed,
         mode: session.mode, chapter: session.chapter, title: session.title,
-        startedAt: session.startedAt, correct: session.correct, optOrder: session.optOrder
+        startedAt: session.startedAt, correct: session.correct, optOrder: session.optOrder,
+        level: session.level || ""
       }));
     } catch (e) {}
   }
@@ -495,13 +571,25 @@
     session = {
       ids: s.ids, i: s.i, picks: s.picks || {}, revealed: s.revealed || {}, mode: s.mode,
       chapter: s.chapter, title: s.title, startedAt: s.startedAt || Date.now(),
-      correct: s.correct || 0, finished: false, optOrder: s.optOrder || {}
+      correct: s.correct || 0, finished: false, optOrder: s.optOrder || {},
+      level: s.level || ""
     };
+    if (s.level && LEVELS.some(function (l) { return l.id === s.level; }) && s.level !== curLevelId()) {
+      state.settings.level = s.level;
+      save(true);
+    }
     return true;
   }
 
   /* ========================= 练习器 ========================= */
   function renderPlayer(query) {
+    /* 深链指向别的级别时自动切换级别，避免取不到题 */
+    if (query && query.chapter && CHAP[query.chapter] && CHAP[query.chapter].level && CHAP[query.chapter].level !== curLevelId()) {
+      state.settings.level = CHAP[query.chapter].level; save(true);
+    }
+    if (query && query.id && BYID[query.id] && BYID[query.id].level && BYID[query.id].level !== curLevelId()) {
+      state.settings.level = BYID[query.id].level; save(true);
+    }
     if (query && query.resume) {
       restoreSession();
     } else if (query && query.scope === "single" && query.id && BYID[query.id]) {
@@ -516,7 +604,7 @@
       if (!ok) { location.replace("#/bank"); return; }
     }
     if (!session) { location.replace("#/home"); return; }
-    setHead("practice", session.title, "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
+    setHead("practice", session.title, (session.level ? levelName(session.level) + " · " : "") + "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
     renderPlayerBody();
   }
 
@@ -533,8 +621,8 @@
       var cls = "opt";
       var flag = "";
       if (revealed) {
-        if (q.answer.indexOf(oi) > -1) { cls += " opt--right"; flag = '<span class="opt__flag">正确答案</span>'; }
-        else if (pick.indexOf(oi) > -1) { cls += " opt--wrong"; flag = '<span class="opt__flag">你选了</span>'; }
+        if (q.answer.indexOf(oi) > -1) { cls += " opt--right"; flag = '<span class="opt__mark">' + icon("check") + "</span>"; }
+        else if (pick.indexOf(oi) > -1) { cls += " opt--wrong"; flag = '<span class="opt__mark opt__mark--bad">' + icon("xmark") + "</span>"; }
       } else if (pick.indexOf(oi) > -1) { cls += " opt--sel"; }
       return '<button class="' + cls + '" data-act="opt" data-idx="' + oi + '"' + (revealed ? " disabled" : "") + ">" +
         '<span class="opt__key">' + LETTERS[pos] + "</span>" +
@@ -618,7 +706,7 @@
     } else {
       renderPlayerBody();
     }
-    setHead("practice", session.title, "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
+    setHead("practice", session.title, (session.level ? levelName(session.level) + " · " : "") + "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
     persistSession();
   }
   function nextQ() {
@@ -632,7 +720,7 @@
       var top = card.getBoundingClientRect().top + window.scrollY - 70;
       window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     }
-    setHead("practice", session.title, "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
+    setHead("practice", session.title, (session.level ? levelName(session.level) + " · " : "") + "共 " + session.ids.length + " 题 · 已答 " + Object.keys(session.revealed).length);
   }
   function prevQ() {
     if (!session || session.i === 0) return;
@@ -651,14 +739,14 @@
       if (a.ok) correct++; else wrongIds.push(id);
     });
     state.history.unshift({
-      ts: Date.now(), mode: session.mode, title: session.title,
+      ts: Date.now(), mode: session.mode, title: session.title, level: session.level || "",
       total: total, done: doneCount, ok: correct,
       secs: Math.round((Date.now() - session.startedAt) / 1000)
     });
     state.history = state.history.slice(0, 20);
     save(true);
     var snap = {
-      title: session.title, total: total, done: doneCount, ok: correct, wrongIds: wrongIds,
+      title: session.title, level: session.level || "", total: total, done: doneCount, ok: correct, wrongIds: wrongIds,
       secs: Math.round((Date.now() - session.startedAt) / 1000), mode: session.mode
     };
     session = null;
@@ -667,7 +755,8 @@
   }
 
   function renderResult(r) {
-    setHead("practice", "练习完成", r.title);
+    var head = (r.level ? levelName(r.level) + " · " : "") + r.title;
+    setHead("practice", "练习完成", head);
     try { history.replaceState(null, "", "#/home"); } catch (e) {}
     var acc = r.done ? Math.round((r.ok / r.done) * 100) : 0;
     var wrongHtml = r.wrongIds.length
@@ -681,7 +770,7 @@
       : '<div class="card" style="margin-top:16px;padding:16px;text-align:center"><b>这一组全对 🎉</b><p class="small muted" style="margin-top:4px">保持这个手感，接着练下一章。</p></div>';
 
     view.innerHTML =
-      '<div class="done"><h2>' + esc(r.title) + "</h2>" +
+      '<div class="done"><h2>' + esc(head) + "</h2>" +
         '<div class="done__score">' + acc + '<span>%</span></div>' +
         '<p class="done__sub">答对 ' + r.ok + " / 已答 " + r.done + " 题</p>" +
         '<div class="done__stats">' +
@@ -699,14 +788,18 @@
 
   /* ========================= 模拟测验 ========================= */
   function renderTestIntro() {
-    var last = state.history.filter(function (h) { return h.mode === "test"; })[0];
+    var lv = curLevel();
+    var pool = levelQs();
+    var last = state.history.filter(function (h) { return h.mode === "test" && (!h.level || h.level === lv.id); })[0];
+    var n = Math.min(50, pool.length);
     view.innerHTML =
+      '<div class="levelbar"><span class="levelbar__label">级别</span>' + levelChips() + "</div>" +
       '<div class="hero" style="background:linear-gradient(140deg,#22326e 0%,#2b2a86 50%,#4b39df 100%)">' +
-        '<p class="hero__kicker">MOCK TEST</p>' +
+        '<p class="hero__kicker">MOCK TEST · ' + esc(lv.name) + "</p>" +
         '<h2 class="hero__title">模拟测验</h2>' +
-        '<p class="hero__desc">从全库随机抽 50 题，交卷后统一判分并列出错题。考查的是你现在的真实水平。</p>' +
-        '<div class="hero__stats"><div><b class="num">50</b><span>抽题数</span></div><div><b class="num">' +
-        Math.min(20, QS.length) + '</b><span>预计分钟</span></div><div><b class="num">' +
+        '<p class="hero__desc">从' + esc(lv.name) + "题库随机抽 " + n + " 题，交卷后统一判分并列出错题。考查的是你现在的真实水平。</p>" +
+        '<div class="hero__stats"><div><b class="num">' + n + '</b><span>抽题数</span></div><div><b class="num">' +
+        Math.min(20, pool.length) + '</b><span>预计分钟</span></div><div><b class="num">' +
         (last ? Math.round((last.ok / Math.max(1, last.done)) * 100) + "%" : "—") + "</b><span>上次得分</span></div></div>" +
         '<div class="hero__cta"><a class="btn" href="#/run" data-act="start-test">开始测验</a></div>' +
       "</div>" +
@@ -725,8 +818,9 @@
     drawTestQuestion();
   }
   function startTest() {
-    var ids = pick(QS.map(function (q) { return q.id; }), Math.min(50, QS.length));
-    testSession = { ids: ids, i: 0, picks: {}, startedAt: Date.now(), timer: null };
+    var pool = levelQs();
+    var ids = pick(pool.map(function (q) { return q.id; }), Math.min(50, pool.length));
+    testSession = { ids: ids, i: 0, picks: {}, startedAt: Date.now(), timer: null, level: curLevelId() };
     startTestTimer();
   }
   function startTestTimer() {
@@ -789,13 +883,14 @@
       record(q, ok, pickV);
     });
     var secs = Math.round((Date.now() - testSession.startedAt) / 1000);
+    var tLevel = testSession.level || curLevelId();
     state.history.unshift({
-      ts: Date.now(), mode: "test", title: "模拟测验", total: testSession.ids.length,
+      ts: Date.now(), mode: "test", title: "模拟测验", level: tLevel, total: testSession.ids.length,
       done: testSession.ids.length, ok: correct, secs: secs
     });
     state.history = state.history.slice(0, 20);
     save(true);
-    var snap = { title: "模拟测验", total: testSession.ids.length, done: testSession.ids.length, ok: correct, wrongIds: wrongIds, secs: secs, mode: "test" };
+    var snap = { title: "模拟测验", level: tLevel, total: testSession.ids.length, done: testSession.ids.length, ok: correct, wrongIds: wrongIds, secs: secs, mode: "test" };
     testSession = null;
     renderResult(snap);
   }
@@ -817,6 +912,7 @@
       var a = state.answers[id];
       html += '<div class="wrongitem"><div class="wrongitem__top"><span class="badge badge--brand">' +
         esc(CHAP[q.chapter] ? CHAP[q.chapter].short || CHAP[q.chapter].name : "") + '</span>' +
+        '<span class="badge badge--info">' + esc(levelName(q.level)) + '</span>' +
         '<span class="badge badge--warn">错 ' + state.wrong[id] + " 次</span>" +
         '<span class="small muted" style="margin-left:auto">' + (a ? fmtDay(a.ts) : "") + "</span></div>" +
         "<p>" + esc(q.stem) + "</p>" +
@@ -837,7 +933,8 @@
       var q = BYID[id];
       if (!q) return;
       html += '<div class="wrongitem"><div class="wrongitem__top"><span class="badge badge--brand">' +
-        esc(CHAP[q.chapter] ? CHAP[q.chapter].short || CHAP[q.chapter].name : "") + '</span><span class="small muted">' +
+        esc(CHAP[q.chapter] ? CHAP[q.chapter].short || CHAP[q.chapter].name : "") + '</span>' +
+        '<span class="badge badge--info">' + esc(levelName(q.level)) + '</span><span class="small muted">' +
         esc(q.topic) + "</span></div><p>" + esc(q.stem) + "</p>" +
         '<div class="toolrow"><a class="btn btn--ghost btn--sm" href="#/practice?scope=single&id=' + id + '">看这题</a>' +
         '<button class="btn btn--ghost btn--sm" data-act="unfav" data-id="' + id + '">取消收藏</button></div></div>';
@@ -847,11 +944,11 @@
 
   /* ========================= 统计 ========================= */
   function renderStats() {
-    var ans = answeredIds().length, cor = correctIds().length;
-    var acc = ans ? Math.round((cor / ans) * 100) : 0;
+    var lv = curLevel();
+    var lp = levelProgress();
     var wrongN = Object.keys(state.wrong).length;
     var td = dailyToday();
-    var chs = (META.chapters || []).map(function (ch) {
+    var chs = levelChapters().map(function (ch) {
       var st = chapterStats(ch.id);
       return { ch: ch, st: st };
     });
@@ -863,18 +960,20 @@
     }).join("");
     var hist = state.history.slice(0, 6).map(function (h) {
       var a = Math.round((h.ok / Math.max(1, h.mode === "test" ? h.total : h.done)) * 100);
-      return '<div class="hist"><b>' + a + "%</b><span style='flex:1'>" + esc(h.title) + "</span><span class='muted'>" +
+      return '<div class="hist"><b>' + a + "%</b>" + (h.level ? '<span class="hist__lv">' + esc(levelName(h.level)) + "</span>" : "") +
+        "<span style='flex:1'>" + esc(h.title) + "</span><span class='muted'>" +
         h.ok + "/" + (h.mode === "test" ? h.total : h.done) + " · " + fmtDay(h.ts) + "</span></div>";
     }).join("") || '<p class="small muted">还没有练习记录，刷完一组就会出现在这里。</p>';
 
     view.innerHTML =
+      '<div class="levelbar"><span class="levelbar__label">级别</span>' + levelChips() + "</div>" +
       '<div class="statgrid">' +
-        "<div class='stat'><b class='num'>" + ans + "</b><span>累计答题</span></div>" +
-        "<div class='stat'><b class='num'>" + acc + "%</b><span>总体正确率</span></div>" +
+        "<div class='stat'><b class='num'>" + lp.done + "</b><span>" + esc(lv.name) + "累计答题</span></div>" +
+        "<div class='stat'><b class='num'>" + lp.acc + "%</b><span>总体正确率</span></div>" +
         "<div class='stat'><b class='num'>" + streak() + "</b><span>连续学习天数</span></div>" +
         "<div class='stat'><b class='num'>" + td.n + "</b><span>今日已答</span></div>" +
       "</div>" +
-      '<div class="sect"><div class="sect__head"><h2>章节正确率</h2><span>已练 ' + ans + " / " + QS.length + " 题</span></div>" +
+      '<div class="sect"><div class="sect__head"><h2>' + esc(lv.name) + '章节正确率</h2><span>已练 ' + lp.done + " / " + lp.total + " 题</span></div>" +
         '<div class="chartcard">' + chart + "</div></div>" +
       '<div class="sect"><div class="sect__head"><h2>最近练习</h2><a href="#/wrong">错题本 ' + wrongN + "</a></div>" +
         '<div class="card" style="padding:14px">' + hist + "</div></div>" +
@@ -898,6 +997,15 @@
     var st = state.settings;
     view.innerHTML =
       '<div class="card" style="padding:16px">' +
+        '<h2 style="font-size:15px;margin-bottom:10px">当前级别</h2>' +
+        '<div class="field"><div class="field__label">刷题难度</div><div class="chiprow">' +
+        LEVELS.map(function (l) {
+          return '<button class="chip' + (l.id === curLevelId() ? " chip--on" : "") + '" data-act="set-level" data-v="' + l.id + '">' +
+            esc(l.name) + "（" + (l.count || 0) + " 题）</button>";
+        }).join("") + "</div></div>" +
+        '<p class="small muted" style="margin-top:4px">' + esc(curLevel().desc || "") + "</p>" +
+      "</div>" +
+      '<div class="card" style="padding:16px;margin-top:12px">' +
         '<h2 style="font-size:15px;margin-bottom:10px">显示</h2>' +
         '<div class="field"><div class="field__label">主题</div><div class="chiprow">' +
           ["light|浅色", "dark|深色", "auto|跟随系统"].map(function (x) {
@@ -932,9 +1040,9 @@
       '<div class="card" style="padding:16px;margin-top:12px">' +
         '<h2 style="font-size:15px;margin-bottom:8px">关于题库</h2>' +
         '<p class="small" style="line-height:1.85">' +
-          "<b>" + esc(META.title || "人工智能工程技术人员（初级）模拟题库") + "</b><br>" +
-          "版本 " + esc(META.version || "1.0") + " · 更新时间 " + esc(META.updatedAt || "") + " · 共 " + QS.length + " 题<br>" +
-          esc(META.notice || "") + "<br><br>" +
+          "<b>" + esc(META.title || "人工智能工程技术人员模拟题库") + "</b><br>" +
+          "版本 " + esc(META.version || "1.0") + " · 更新时间 " + esc(META.updatedAt || "") + " · 三级共 " + QS.length + " 题<br>" +
+          LEVELS.map(function (l) { return esc(l.name) + " " + (l.count || 0) + " 题"; }).join(" · ") + "<br><br>" +
           "题目依据国家职业技术技能标准与公开学习资料原创编写，用于考前自测与知识梳理；不代表官方命题，也不构成任何考试承诺。若发现题目或解析有误，欢迎截图反馈，我会修订。",
         "</p>" +
         '<p class="small muted" style="margin-top:12px">离线可用：把页面添加到主屏幕后，断网也能刷题。</p>' +
@@ -957,9 +1065,10 @@
           return (q.stem + " " + q.options.join(" ") + " " + (q.explain || "") + " " + (q.topic || "")).toLowerCase().indexOf(kw) > -1;
         }).slice(0, 40);
         if (!hits.length) { box.innerHTML = '<p class="small muted">没有匹配的题目。</p>'; return; }
-        box.innerHTML = '<p class="small muted" style="margin-bottom:8px">找到 ' + hits.length + " 题</p>" + hits.map(function (q) {
+        box.innerHTML = '<p class="small muted" style="margin-bottom:8px">找到 ' + hits.length + " 题（三级全库）</p>" + hits.map(function (q) {
           return '<div class="wrongitem"><div class="wrongitem__top"><span class="badge badge--brand">' +
-            esc(CHAP[q.chapter] ? CHAP[q.chapter].short || CHAP[q.chapter].name : "") + '</span><span class="small muted">' +
+            esc(CHAP[q.chapter] ? CHAP[q.chapter].short || CHAP[q.chapter].name : "") + '</span>' +
+            '<span class="badge badge--info">' + esc(levelName(q.level)) + '</span><span class="small muted">' +
             esc(q.topic) + '</span></div><p>' + esc(q.stem) + '</p>' +
             '<div class="toolrow"><a class="btn btn--ghost btn--sm" href="#/practice?scope=single&id=' + q.id + '">打开这道题</a></div></div>';
         }).join("");
@@ -1068,6 +1177,7 @@
       if (i > -1) state.fav.splice(i, 1);
       save(true); renderFav(); updateSide();
     }
+    else if (act === "set-level") { setLevel(btn.getAttribute("data-v")); }
     else if (act === "set-theme") { state.settings.theme = btn.getAttribute("data-v"); save(true); applyTheme(); renderSettings(); }
     else if (act === "set-font") { state.settings.font = btn.getAttribute("data-v"); save(true); applyFont(); renderSettings(); }
     else if (act === "toggle-autonext") { state.settings.autoNext = !state.settings.autoNext; save(true); renderSettings(); }

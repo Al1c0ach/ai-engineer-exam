@@ -1,5 +1,5 @@
-/* AI工题库 PWA Service Worker：离线可用 */
-var CACHE = "aiexam-v1";
+﻿/* AI工题库 PWA Service Worker：离线可用 */
+var CACHE = "aiexam-v2";
 var ASSETS = [
   "./",
   "index.html",
