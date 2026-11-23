@@ -10,7 +10,7 @@ const META = {
   exam: "人工智能工程技术人员（初级）",
   version: "1.0.0",
   updatedAt: "2026-11-24",
-  notice: "原创模拟题 · 覆盖基础理论与工程实践两科 · 非官方真题",
+  notice: "原创模拟题 · 两科十章 · 非官方真题",
   subjects: [
     {
       id: "basis", name: "人工智能基础理论", short: "基础理论", icon: "cpu", badge: "科目一",
