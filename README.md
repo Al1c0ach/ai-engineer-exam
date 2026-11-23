@@ -4,6 +4,15 @@
 
 线上地址：https://al1c0ach.github.io/ai-engineer-exam/
 
+手机扫码直达：
+
+<img src="qr.png" width="220" alt="扫码刷题">
+
+| 首页 | 答题 |
+| --- | --- |
+| <img src="preview-home.png" width="230"> | <img src="preview-question.png" width="230"> |
+
+
 ## 功能
 
 - **分类题库**：基础理论（数理基础 / 机器学习 / 深度学习 / NLP 语音 / 计算机视觉）+ 工程实践（数据算力 / 训练部署 / 产品集成 / 大模型 / 伦理法规），10 章 45 个考点，每章可看考点分布与进度
